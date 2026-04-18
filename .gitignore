@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+.env
+
+# --- Secrets (do NOT commit) ---
+credentials.json
+credentials.*.json
+*.key
+*.pem
+.env.*
+
+# --- Run artifacts ---
+runs/
+eval_system/
+eval_all/
+eval_baseline/
+debug_test/
+figures/
+
+# --- Heavy third-party / vendored code ---
+platform/
+orfs/
+third_party/
+patches/
+
+# --- Editor / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

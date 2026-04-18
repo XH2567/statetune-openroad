@@ -1,0 +1,123 @@
+# configs/asap7_aes/baseline_bo.yaml
+# ============================================================
+# BASELINE: Optuna TPE Multi-Objective Sampler
+# ============================================================
+
+project_name: "baseline_optuna_aes"
+work_dir: "./runs/baseline_optuna_aes"
+baseline_strategy: "optuna"
+
+eda:
+  flow: "cadence"
+
+design:
+  name: "aes_cipher_top"
+  verilog:
+    - "./benchmark/aes/*.v"
+  sdc: "./benchmark/aes/aes_constraint_asap7.sdc"
+
+default_params:
+  CORE_UTIL: 0.65
+  ASPECT_RATIO: 1.00
+  CORE_MARGIN: 8
+  PLACE_CONG_EFFORT: "medium"
+  PLACE_TIMING_EFFORT: "high"
+  PLACE_UNIFORM_DENSITY: true
+  PLACE_IO_PINS_AWARE: true
+  TD_PLACE: 1
+  PLACE_MAX_DENSITY: 0.85
+  PRECTS_SETUP_OPT: 1
+  PRECTS_HOLD_OPT: 0
+  DRV_EFFORT: "medium"
+  RUN_CTS: 1
+  CTS_TARGET_SKEW: 0.08
+  CTS_POST_OPT: 1
+  ROUTE_TIMING_DRIVEN: true
+  ROUTE_SI_DRIVEN: false
+  ROUTE_EFFORT: "medium"
+  ROUTE_LAYER_EFFORT: "medium"
+
+cadence:
+  stage_env_var: "RUN_STAGE"
+  override_env_var: "OVERRIDE_TCL"
+  remote:
+    credentials_file: "./credentials.json"
+    remote_root: "/path/to/project/asap7_aes"
+    rtl_dir: "/path/to/project/benchmark/aes"
+    rtl_include_dirs: []
+    plat_dir: "/path/to/project/platform/asap7"
+    sdc_file: "/path/to/project/benchmark/aes/aes_constraint_asap7.sdc"
+    lib_model: "NLDM"
+    lib_corner: "RVT_TT"
+    tool_env_script: ""
+    genus_bin: ""
+    innovus_bin: ""
+
+    threads_per_task: 8
+    genus_ncpu: 8
+    innovus_ncpu_quick: 8
+    innovus_ncpu_full: 16
+
+    queue: "normal"
+    genus_time: "01:00"
+    innovus_time: "01:00"
+    poll_interval_sec: 60
+    max_poll_attempts: 240
+    cleanup_remote_after_download: false
+    stop_on_remote_error: true
+    resume_on_restart: true
+    keepalive_sec: 30
+    reconnect_retries: 2
+    reconnect_retry_interval_sec: 5
+    max_submit_backpressure_wait_sec: 3600
+    submit_retry_interval_sec: 90
+
+    lsf_pending_jobs_soft_limit: 150
+    lsf_running_jobs_soft_limit: 24
+    lsf_running_slots_soft_limit: 392
+    lsf_check_interval_sec: 45
+    lsf_check_jitter_sec: 15
+
+fidelity:
+  quick_target: "place"
+  full_target: "route"
+  quick_timeout_sec: 3600
+  full_timeout_sec: 14400
+  promote_prob: 0.35
+  promo_batch: 64
+  max_promo_pool: 2000
+  stop_starting_sec: 900
+  risk_beta: 2.0
+  margin_sec: 0
+  warmup_quick: 20
+
+llm:
+  enable: false
+
+ka:
+  enable: false
+
+tuning:
+  max_concurrency: 4
+  total_seconds: 172800
+  cleanup_every: 20
+  param_space:
+    - {name: "CORE_UTIL",            type: "float", range: [0.55, 0.78]}
+    - {name: "ASPECT_RATIO",         type: "float", range: [0.80, 1.20]}
+    - {name: "CORE_MARGIN",          type: "int",   range: [0, 16]}
+    - {name: "PLACE_CONG_EFFORT",    type: "categorical", choices: ["low", "medium", "high"]}
+    - {name: "PLACE_TIMING_EFFORT",  type: "categorical", choices: ["medium", "high"]}
+    - {name: "PLACE_UNIFORM_DENSITY", type: "categorical", choices: ["true", "false"]}
+    - {name: "PLACE_IO_PINS_AWARE",  type: "categorical", choices: ["true", "false"]}
+    - {name: "TD_PLACE",             type: "int", choices: [0, 1]}
+    - {name: "PLACE_MAX_DENSITY",    type: "float", range: [0.75, 0.95]}
+    - {name: "PRECTS_SETUP_OPT",     type: "int", choices: [0, 1]}
+    - {name: "PRECTS_HOLD_OPT",      type: "int", choices: [0, 1]}
+    - {name: "DRV_EFFORT",           type: "categorical", choices: ["low", "medium", "high"]}
+    - {name: "RUN_CTS",              type: "int", choices: [0, 1]}
+    - {name: "CTS_TARGET_SKEW",      type: "float", range: [0.03, 0.15]}
+    - {name: "CTS_POST_OPT",         type: "int", choices: [0, 1]}
+    - {name: "ROUTE_TIMING_DRIVEN",  type: "categorical", choices: ["true", "false"]}
+    - {name: "ROUTE_SI_DRIVEN",      type: "categorical", choices: ["true", "false"]}
+    - {name: "ROUTE_EFFORT",         type: "categorical", choices: ["low", "medium", "high"]}
+    - {name: "ROUTE_LAYER_EFFORT",   type: "categorical", choices: ["low", "medium", "high"]}
