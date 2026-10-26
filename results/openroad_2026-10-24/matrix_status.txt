@@ -1,0 +1,14 @@
+START 2026-10-23 19:09:41 parallel=3 cases=[nangate_jpeg asap7_ibex asap7_jpeg nangate_ibex asap7_aes nangate_aes]
+BEGIN nangate_jpeg (openroad_jpeg_ng45) free=103G 2026-10-23 19:09:41
+BEGIN asap7_jpeg (openroad_jpeg_asap7) free=103G 2026-10-23 19:09:41
+BEGIN asap7_ibex (openroad_ibex_asap7) free=103G 2026-10-23 19:09:41
+END   asap7_jpeg rc=0 2026-10-24 01:18:35
+BEGIN nangate_ibex (openroad_ibex_ng45) free=75G 2026-10-24 01:18:35
+END   asap7_ibex rc=0 2026-10-24 01:22:51
+BEGIN asap7_aes (openroad_aes_asap7) free=75G 2026-10-24 01:22:51
+END   nangate_jpeg rc=0 2026-10-24 01:27:11
+BEGIN nangate_aes (openroad_aes_ng45) free=76G 2026-10-24 01:27:11
+END   nangate_ibex rc=0 2026-10-24 07:26:47
+END   asap7_aes rc=0 2026-10-24 07:30:53
+END   nangate_aes rc=0 2026-10-24 07:34:23
+ALL DONE 2026-10-24 07:34:23

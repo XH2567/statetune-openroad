@@ -218,6 +218,15 @@ class KnowledgeAgent:
         llm_cfg = cfg.get("llm", {}) or {}
         ka_cfg = cfg.get("ka", {}) or {}
 
+        # Flow backend (same auto-detection as runner_factory) — selects flow-specific prompt text
+        eda_cfg = cfg.get("eda", {}) or {}
+        self.flow = str(eda_cfg.get("flow") or cfg.get("flow") or "").strip().lower()
+        if not self.flow:
+            self.flow = "cadence" if isinstance(cfg.get("cadence", None), dict) else "openroad"
+        self.quick_effective_params = list(
+            (cfg.get("fidelity", {}) or {}).get("quick_effective_params", []) or []
+        )
+
         self.enabled = bool(llm_cfg.get("enable", False) or ka_cfg.get("enable", False))
         self.temperature = float(llm_cfg.get("temperature", ka_cfg.get("temperature", 0.2)))
         self.max_output_tokens = int(llm_cfg.get("max_output_tokens", ka_cfg.get("max_output_tokens", 4000)))
@@ -1321,16 +1330,34 @@ class KnowledgeAgent:
 
         feedback_txt = self._format_feedback_block()
 
+        if self.flow in ("cadence", "innovus", "genus"):
+            domain_txt = (
+                "You are KA (Knowledge Agent), an expert EDA/PD engineer for Cadence Genus+Innovus parameter tuning.\n"
+                "\n"
+                "=== YOUR DOMAIN EXPERTISE ===\n"
+                "You understand:\n"
+                "- Cadence Innovus place/CTS/route stages and how parameters affect each stage\n"
+                "- UTIL controls core utilization (higher = denser = shorter wires but harder to route/close timing)\n"
+                "- MARGIN controls floorplan margin (higher = more whitespace = easier routing but larger area)\n"
+                "- TD_PLACE=1 enables timing-driven placement (critical for designs with long combinational paths)\n"
+                "- RUN_CTS=1 enables clock tree synthesis (needed for realistic timing but adds runtime)\n"
+            )
+        else:
+            domain_txt = (
+                "You are KA (Knowledge Agent), an expert EDA/PD engineer for OpenROAD-flow-scripts (ORFS: Yosys+OpenROAD) parameter tuning.\n"
+                "\n"
+                "=== YOUR DOMAIN EXPERTISE ===\n"
+                "You understand:\n"
+                "- ORFS synth/floorplan/place/CTS/route stages and how ORFS Makefile variables affect each stage\n"
+                "- CORE_UTILIZATION is a PERCENTAGE (e.g. 45 = 45%); higher = denser = shorter wires but harder to route/close timing\n"
+                "- PLACE_DENSITY is the global-placement target density (must stay above the utilization ratio)\n"
+                "- gp_timing_driven / gp_routability_driven toggle timing- / routability-driven global placement\n"
+                "- place_padding adds cell padding (in sites) during global placement to relieve congestion\n"
+                "- TNS_END_PERCENT controls how many violating endpoints repair_timing works on\n"
+            )
+
         return (
-            "You are KA (Knowledge Agent), an expert EDA/PD engineer for Cadence Genus+Innovus parameter tuning.\n"
-            "\n"
-            "=== YOUR DOMAIN EXPERTISE ===\n"
-            "You understand:\n"
-            "- Cadence Innovus place/CTS/route stages and how parameters affect each stage\n"
-            "- UTIL controls core utilization (higher = denser = shorter wires but harder to route/close timing)\n"
-            "- MARGIN controls floorplan margin (higher = more whitespace = easier routing but larger area)\n"
-            "- TD_PLACE=1 enables timing-driven placement (critical for designs with long combinational paths)\n"
-            "- RUN_CTS=1 enables clock tree synthesis (needed for realistic timing but adds runtime)\n"
+            domain_txt +
             "- WNS is in the SAME unit as clock period (typically ps for advanced nodes like ASAP7)\n"
             "- Negative WNS = timing violation; WNS closer to 0 or positive = better\n"
             "- Area and Power should be minimized; WNS should be maximized (less negative)\n"
@@ -1409,7 +1436,17 @@ class KnowledgeAgent:
 
         # Tell the LLM which parameters are actually effective at the current stage
         stage_param_hint = ""
-        if "quick" in str(stage).lower() or "place" in str(stage).lower():
+        is_quick_stage = "quick" in str(stage).lower() or "place" in str(stage).lower()
+        if is_quick_stage and self.flow not in ("cadence", "innovus", "genus"):
+            if self.quick_effective_params:
+                stage_param_hint = (
+                    "\n⚠ CRITICAL: Current stage is the QUICK stage (routing not executed).\n"
+                    "Only these parameters affect quick-stage results:\n"
+                    "  - " + ", ".join(str(p) for p in self.quick_effective_params) + "\n"
+                    "Other parameters only matter after promotion to the full flow; "
+                    "focus your perturbations on the quick-effective parameters.\n"
+                )
+        elif is_quick_stage:
             stage_param_hint = (
                 "\n⚠ CRITICAL: Current stage is PLACEMENT ONLY (quick/place).\n"
                 "The following parameters have NO EFFECT at placement stage and "

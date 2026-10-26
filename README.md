@@ -1,5 +1,7 @@
 # StateTune
 
+> **OpenROAD port** of [C-YuLong/stateTune](https://github.com/C-YuLong/stateTune) (upstream commit `66ea606`): runs StateTune on open-source OpenROAD-flow-scripts instead of Cadence — no Cadence license and no root needed. See [docs/OPENROAD_PORT.md](docs/OPENROAD_PORT.md) (Chinese) for setup, code changes, results, and the comparison with the paper. Everything below this note is the upstream README.
+
 **Transforming LLM-Assisted EDA Flow Tuning into a Stateful, Closed-Loop Process**
 
 StateTune reformulates LLM-assisted EDA flow parameter tuning as a closed-loop, state-carrying process. Its optimizer state is a **typed, evidence-gated persistent optimization memory** that is updated by every evaluation and shared between candidate generation and budget allocation. On top of this memory, an **EHVI-guided, runtime-aware promotion policy** ranks quick-stage candidates by expected Pareto frontier gain per unit of runtime cost.

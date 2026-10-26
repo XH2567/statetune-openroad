@@ -1,0 +1,39 @@
+#!/bin/bash
+# Run a command inside the extracted openroad/orfs docker image (no root / docker daemon needed).
+# The image rootfs becomes "/", and host paths that StateTune passes to ORFS (this repo, $ORFS_HOME, $TMPDIR,
+# plus anything in $ORFS_SANDBOX_BINDS) are bind-mounted at the same path, so they keep working.
+#
+#   ORFS_HOME            directory created by tools/setup_orfs.sh (contains rootfs/)
+#   ORFS_SANDBOX_BINDS   extra host dirs to expose, space separated (e.g. "/data1 /scratch")
+#
+# Usage: tools/orfs-sandbox <cmd> [args...]     e.g.  tools/orfs-sandbox openroad -version
+set -euo pipefail
+
+: "${ORFS_HOME:?set ORFS_HOME (see .env.example / tools/setup_orfs.sh)}"
+ROOTFS="$ORFS_HOME/rootfs"
+ORFS=/OpenROAD-flow-scripts
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -d "$ROOTFS$ORFS" ] || { echo "orfs-sandbox: $ROOTFS$ORFS not found; run tools/setup_orfs.sh" >&2; exit 2; }
+
+binds=()
+# $ORFS_HOME too: the runner addresses the ORFS flow dir by its host path ($ORFS_HOME/rootfs/...)
+for d in "$REPO" "$ORFS_HOME" "${TMPDIR:-/tmp}" ${ORFS_SANDBOX_BINDS:-}; do
+  [ -d "$d" ] && binds+=(--bind "$d" "$d")
+done
+mkdir -p "$ORFS_HOME/home"
+
+exec bwrap \
+  --bind "$ROOTFS" / \
+  --dev /dev \
+  --proc /proc \
+  --bind /tmp /tmp \
+  "${binds[@]}" \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \
+  --die-with-parent \
+  --chdir "$PWD" \
+  --setenv PATH "$ORFS/tools/install/OpenROAD/bin:$ORFS/tools/install/yosys/bin:$ORFS/tools/install/kepler-formal/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  --setenv FLOW_HOME "$ORFS/flow" \
+  --setenv HOME "$ORFS_HOME/home" \
+  --unsetenv PYTHONPATH \
+  --unsetenv VIRTUAL_ENV \
+  "$@"

@@ -384,7 +384,7 @@ def generate_llm_report(
         area = _safe_float(m.get("area"), float("inf"))
         wns = _safe_float(m.get("wns"), -100.0)
         power = _safe_float(m.get("power"), float("inf"))
-        return math.isfinite(area) and math.isfinite(wns) and math.isfinite(power) and (wns > -99.0)
+        return math.isfinite(area) and math.isfinite(wns) and math.isfinite(power) and (wns != -100.0)
 
     job_succ = [h for h in records if _is_job_success(h)]
     job_fail = [h for h in records if not _is_job_success(h)]
@@ -1020,6 +1020,11 @@ def main(config_path: str = "configs/config.yaml") -> None:
               f"trim_interval={KP_HARD_RULE_TRIM_INTERVAL}")
 
     # ------------ core objects ------------
+    # Quick-stage fingerprint params are flow-specific; configs may override the Innovus default set.
+    global _PLACEMENT_EFFECTIVE_PARAMS
+    if fid.get("quick_effective_params"):
+        _PLACEMENT_EFFECTIVE_PARAMS = {str(p) for p in fid["quick_effective_params"]}
+
     param_space = _get_param_space(cfg)
     default_params = _default_params_to_friendly(cfg)
 
@@ -2326,7 +2331,7 @@ def main(config_path: str = "configs/config.yaml") -> None:
                             _cm_sentinel = any(cm.get(f"__{k}_sentinel__", False) for k in ("area", "wns", "power"))
                             if (not _pm_sentinel and not _cm_sentinel
                                     and pa != float("inf") and ca != float("inf")
-                                    and pw > -99.0 and cw > -99.0
+                                    and pw != -100.0 and cw != -100.0
                                     and pp != float("inf") and cp != float("inf")):
                                 delta = {"wns": cw - pw, "area": ca - pa, "power": cp - pp}
                                 regressed = (delta["wns"] < 0.0) or (delta["area"] > 0.0) or (delta["power"] > 0.0)

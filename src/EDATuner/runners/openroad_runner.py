@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import glob
 import json
 import os
 import shutil
@@ -77,7 +78,15 @@ def extract_wl_proxy_from_orfs_log(log_file: Path) -> Dict[str, Any]:
 class OpenRoadFlow(EDARunner):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.orfs_root = Path(self.cfg["orfs"]["root"]).resolve()
+        # orfs.root / orfs.exec_prefix may use ${ENV_VARS} and paths relative to the launch directory
+        self.orfs_root = Path(os.path.expandvars(self.cfg["orfs"]["root"])).resolve()
+        exec_prefix = self.cfg["orfs"].get("exec_prefix", []) or []
+        if isinstance(exec_prefix, str):
+            exec_prefix = exec_prefix.split()
+        exec_prefix = [os.path.expandvars(str(x)) for x in exec_prefix]
+        if exec_prefix and Path(exec_prefix[0]).exists():
+            exec_prefix[0] = str(Path(exec_prefix[0]).resolve())  # run_async uses run_dir as cwd
+        self.exec_prefix = exec_prefix
         self.flow_dir = (self.orfs_root / self.cfg["orfs"].get("flow_dir", "flow")).resolve()
         self.work_dir = Path(self.cfg["work_dir"]).resolve()
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -263,7 +272,10 @@ class OpenRoadFlow(EDARunner):
         verilog_cfg = self.cfg["design"]["verilog"]
         if isinstance(verilog_cfg, str):
             verilog_cfg = [verilog_cfg]
-        verilog_files = [str(Path(v).resolve()) for v in verilog_cfg]
+        verilog_files: List[str] = []
+        for v in verilog_cfg:
+            matches = sorted(glob.glob(str(v)))
+            verilog_files += [str(Path(m).resolve()) for m in matches] if matches else [str(Path(v).resolve())]
         sdc_file = str(Path(self.cfg["design"]["sdc"]).resolve())
 
         inc_cfg = self.cfg["design"].get("verilog_include_dirs", [])
@@ -317,6 +329,10 @@ class OpenRoadFlow(EDARunner):
             else:
                 val = str(v)
             vars_dict[mk_var] = val
+
+        # Fixed (non-tuned) ORFS variables from config: orfs.extra_vars
+        for k, v in (self.cfg["orfs"].get("extra_vars", {}) or {}).items():
+            vars_dict.setdefault(str(k), str(v))
 
         if extra_vars:
             for k, v in extra_vars.items():
@@ -542,9 +558,11 @@ class OpenRoadFlow(EDARunner):
             f.write(f"\ncd {self._bash_quote(str(self.flow_dir.resolve()))}\n")
 
             f.write("\n# Thread caps (avoid OpenROAD using 80 threads)\n")
-            f.write("export OMP_NUM_THREADS=32\n")
-            f.write("export OPENROAD_NUM_THREADS=32\n")
-            f.write("export TBB_NUM_THREADS=32\n")
+            n_threads = int(self.cfg["orfs"].get("threads", 32))
+            f.write(f"export NUM_CORES={n_threads}\n")
+            f.write(f"export OMP_NUM_THREADS={n_threads}\n")
+            f.write(f"export OPENROAD_NUM_THREADS={n_threads}\n")
+            f.write(f"export TBB_NUM_THREADS={n_threads}\n")
             f.write("export MKL_NUM_THREADS=1\n")
             f.write("export MAKEFLAGS=-j1\n")
 
@@ -565,7 +583,7 @@ class OpenRoadFlow(EDARunner):
 
         print(f"    [ORFS] {run_id} target={(target if target else '<default>')} timeout={timeout_sec}s")
         make_rc = await self._run_cmd_logged(
-            [str(wrapper.resolve())],
+            list(self.exec_prefix) + [str(wrapper.resolve())],
             cwd=run_dir,
             log_file=log_file,
             timeout_sec=int(timeout_sec),
@@ -574,7 +592,7 @@ class OpenRoadFlow(EDARunner):
         # Don't hard-fail yet; sometimes ORFS can still produce parsable metrics.
         if make_rc != 0:
             with open(log_file, "a", encoding="utf-8") as log:
-                log.write(f"\n# NOTE: make failed rc={make_rc}; will still try to collect metrics.\n")
+                log.write(f"\n# NOTE: make failed rc={make_rc}; run will be recorded as failed.\n")
 
         # Debug: confirm metrics.log existence and show head snippet
         try:
@@ -589,6 +607,7 @@ class OpenRoadFlow(EDARunner):
         local_candidates = [
             (Path(__file__).resolve().parent / "genMetrics.py"),
             (Path(__file__).resolve().parents[1] / "genMetrics.py"),
+            (Path(__file__).resolve().parents[1] / "utils" / "genMetrics.py"),
         ]
         local_gen = next((p for p in local_candidates if p.exists()), None)
 
@@ -659,11 +678,17 @@ class OpenRoadFlow(EDARunner):
             if not metrics_out.exists():
                 _ = self._copy_metrics_from_orfs_outputs(run_id, metrics_out, log_file)
 
+        # The flow stopped before the requested target (error or timeout): whatever genMetrics found
+        # comes from an earlier stage (e.g. floorplan) and is not comparable, so record a failed run.
+        if make_rc != 0:
+            self._write_placeholder_metrics(run_id, f"make failed rc={make_rc} before target={target or '<default>'}")
+            return bool(allow_missing_metrics), str(log_file)
+
         if not metrics_out.exists():
             if allow_missing_metrics:
                 proxy = self._extract_proxy_metrics_from_orfs_log(log_file)
                 if proxy.get("area") is not None or proxy.get("wns") is not None:
-                    self._write_proxy_metrics(run_id, proxy, "metrics.json missing; used proxies from orfs.log (allowed)")
+                    self._write_proxy_metrics(metrics_out, proxy, "metrics.json missing; used proxies from orfs.log (allowed)")
                 else:
                     self._write_placeholder_metrics(run_id, "metrics.json missing after genMetrics (allowed)")
                 return True, str(log_file)
@@ -678,13 +703,14 @@ class OpenRoadFlow(EDARunner):
             power = float(data.get("power", float("inf")))
             wns = float(data.get("wns", -100.0))
             # print(f"[DEBUG] metrics: area={area} power={power} wns={wns}")
-            valid = (math.isfinite(area) and math.isfinite(power) and (wns > -99.0))
+            # -100.0 is the 'missing' sentinel; compare to it exactly (WNS in ps can legitimately be < -99)
+            valid = (math.isfinite(area) and math.isfinite(power) and math.isfinite(wns) and (wns != -100.0))
             # 2) metrics invalid
             if not valid:
                 if allow_missing_metrics:
                     proxy = self._extract_proxy_metrics_from_orfs_log(log_file)
                     if proxy.get("area") is not None or proxy.get("wns") is not None:
-                        self._write_proxy_metrics(run_id, proxy, "metrics invalid; used proxies from orfs.log (allowed)")
+                        self._write_proxy_metrics(metrics_out, proxy, "metrics invalid; used proxies from orfs.log (allowed)")
                     else:
                         self._write_placeholder_metrics(run_id, "metrics invalid (allowed)")
                     return True, str(log_file)
@@ -695,16 +721,11 @@ class OpenRoadFlow(EDARunner):
             if allow_missing_metrics:
                 proxy = self._extract_proxy_metrics_from_orfs_log(log_file)
                 if proxy.get("area") is not None or proxy.get("wns") is not None:
-                    self._write_proxy_metrics(run_id, proxy, f"metrics.json unreadable; used proxies from orfs.log (allowed)")
+                    self._write_proxy_metrics(metrics_out, proxy, f"metrics.json unreadable; used proxies from orfs.log (allowed)")
                 else:
                     self._write_placeholder_metrics(run_id, f"metrics.json unreadable: {type(e).__name__}: {e} (allowed)")
                 return True, str(log_file)
             return False, str(log_file)
-
-        # If make failed but metrics valid, accept with warning.
-        if make_rc != 0:
-            with open(log_file, "a", encoding="utf-8") as log:
-                log.write(f"\n# NOTE: make_rc={make_rc} but metrics are valid; accepting run as success.\n")
 
         if int(last_rc) != 0:
             with open(log_file, "a", encoding="utf-8") as log:

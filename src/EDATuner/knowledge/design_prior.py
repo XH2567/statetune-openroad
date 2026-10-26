@@ -516,6 +516,13 @@ class DesignPriorBuilder:
                   f"({len(batch)} files, {sum(len(f.content_preview) for f in batch)} chars)")
 
             summary = self._analyze_batch(batch, batch_index=i, total_batches=len(batches))
+            for _retry in range(2):
+                if summary:
+                    break
+                # Transient empty/failed responses happen; the prior is built once per run, so retry
+                print(f"[DesignPrior]   retrying batch {i+1} ({_retry + 1}/2)")
+                time.sleep(5)
+                summary = self._analyze_batch(batch, batch_index=i, total_batches=len(batches))
             if summary:
                 batch_summaries.append(summary)
                 print(f"[DesignPrior]   → summary: {summary[:120]}...")

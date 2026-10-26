@@ -16,6 +16,7 @@ credentials.*.json
 *.key
 *.pem
 .env.*
+!.env.example
 
 # --- Run artifacts ---
 runs/

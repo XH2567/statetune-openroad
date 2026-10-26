@@ -145,6 +145,10 @@ def file_priority_score(p: Path) -> int:
         score += 15
     if p.suffix.lower() == ".json":
         score += 20
+    # ORFS per-stage files (1_synth.json ... 6_report.json): later stage wins
+    m = re.match(r"^(\d+)_", name)
+    if m:
+        score += 5 * int(m.group(1))
     return score
 
 
@@ -232,9 +236,26 @@ def extract_from_json(p: Path) -> Tuple[Optional[float], Optional[float], Option
                     return v
         return None
 
+    def pick_stage(suffix: str) -> Optional[float]:
+        # Newer ORFS prefixes metrics with the stage name, e.g. "cts__timing__setup__ws";
+        # take the last such key (files hold one stage each, so this is that stage's value).
+        val: Optional[float] = None
+        for k, v in flat.items():
+            if k.endswith(suffix) and k.count("__") == suffix.count("__"):
+                fv = safe_float(v)
+                if fv is not None and not math.isnan(fv):
+                    val = fv
+        return val
+
     area = pick(JSON_KEYS["area"])
+    if area is None:
+        area = pick_stage("__design__instance__area")
     wns = pick(JSON_KEYS["wns"])
+    if wns is None:
+        wns = pick_stage("__timing__setup__ws")
     power = pick(JSON_KEYS["power"])
+    if power is None:
+        power = pick_stage("__power__total")
     wl = pick(JSON_KEYS["wl"])
     clk = pick(JSON_KEYS["clock_period"])
     return area, wns, power, wl, clk

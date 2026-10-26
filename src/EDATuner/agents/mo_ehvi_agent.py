@@ -700,6 +700,10 @@ class MOEHVIAgent(TunerAgent):
                 model.eval()
                 acq.eval()
                 ehvi = self._batch_eval_acq(acq, cand_X, batch_size=64)
+                # qLogEHVI returns log(EHVI). The adaptive threshold (positive values) and the
+                # EHVI / t_ucb promotion score need linear EHVI; on log values, once the front
+                # saturates (EHVI < 1) every candidate falls below the threshold and promotion stops.
+                ehvi = torch.exp(ehvi)
 
                 # Track EHVI values for an adaptive threshold
                 ehvi_vals_float = [float(ehvi[i].item()) for i in range(len(params_list))]
